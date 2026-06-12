@@ -138,24 +138,78 @@ export default function App() {
     }
 
     const recognition = new SpeechRecognition();
-    recognition.continuous = false;
+    recognition.continuous = true;
     recognition.interimResults = false;
     recognition.lang = 'en-US';
 
     recognition.onstart = () => {
       setIsListening(true);
-      speakText("Listening now. Please state your project requirements.");
+      setAssistantMessage("Continuous dictation listening... Speak guidelines freely. Say 'stop' or click recording button to finish.");
     };
 
     recognition.onresult = (event: any) => {
-      const transcript = event.results[0][0].transcript;
-      setProjectFocus(prev => prev ? prev + ' ' + transcript : transcript);
-      setAssistantMessage(`Voice added: "${transcript}"`);
-      speakText(`Understood. Appended statement.`);
+      let latestTranscript = '';
+      const currentIndex = event.resultIndex;
+      if (event.results && event.results[currentIndex]) {
+        latestTranscript = event.results[currentIndex][0].transcript;
+      }
+
+      const cleanTranscript = latestTranscript.trim();
+      if (cleanTranscript) {
+        const lower = cleanTranscript.toLowerCase();
+        
+        // Active stopping keyword matching (e.g. exactly "stop", "stop listening", ending with " stop")
+        if (
+          lower === 'stop' || 
+          lower === 'stop.' || 
+          lower.endsWith(' stop') || 
+          lower.endsWith(' stop.') || 
+          lower.includes('stop recording') || 
+          lower.includes('stop listening') ||
+          lower.includes('stop dictating')
+        ) {
+          // Format the clean final verbal text without the "stop" command trigger
+          let filteredText = cleanTranscript;
+          if (lower.endsWith(' stop.')) {
+            filteredText = cleanTranscript.substring(0, cleanTranscript.length - 6);
+          } else if (lower.endsWith(' stop')) {
+            filteredText = cleanTranscript.substring(0, cleanTranscript.length - 5);
+          } else if (lower === 'stop' || lower === 'stop.') {
+            filteredText = '';
+          }
+
+          const finalizedText = filteredText.trim();
+          if (finalizedText) {
+            setProjectFocus(prev => prev ? prev + ' ' + finalizedText : finalizedText);
+          }
+
+          setAssistantMessage("Vocal companion: Continuous dictation ended via 'stop' command.");
+          speakText("Dictation finished. Saved final instructions.");
+          recognition.stop();
+          setIsListening(false);
+          return;
+        }
+
+        // Add standard recognized statement to flow dictations
+        setProjectFocus(prev => prev ? prev + ' ' + cleanTranscript : cleanTranscript);
+        setAssistantMessage(`Dictated: "${cleanTranscript}"`);
+        speakText(`Added: ${cleanTranscript.substring(0, 20)}...`);
+      }
     };
 
     recognition.onerror = (event: any) => {
-      console.error(event);
+      console.error("Speech recognition error:", event.error);
+      let alertMsg = `Speech detection inactive. Try again.`;
+      if (event.error === 'not-allowed') {
+        alertMsg = "Microphone access blocked. Please enable mic permissions in your browser.";
+      } else if (event.error === 'no-speech') {
+        // Minor silent pause on continuous mode; we don't necessarily want to force close
+        return;
+      } else {
+        alertMsg = `Speech interruption: ${event.error}`;
+      }
+      setAssistantMessage(alertMsg);
+      speakText(alertMsg);
       setIsListening(false);
     };
 
