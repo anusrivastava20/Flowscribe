@@ -1,6 +1,6 @@
 {
   "name": "FlowScribe",
   "description": "Transforms whiteboard photos, diagrams, and screenshots into executable project workflows with a drag-and-drop tactile Kanban board.",
-  "requestFramePermissions": [],
+  "requestFramePermissions": ["microphone"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

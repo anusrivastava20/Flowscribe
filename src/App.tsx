@@ -18,7 +18,11 @@ import {
   Calendar, 
   Link2,
   ChevronRight,
-  Info
+  Info,
+  Mic,
+  MicOff,
+  Volume2,
+  VolumeX
 } from 'lucide-react';
 import { Board, Task, ProjectSummary } from './types';
 import { SAMPLE_BOARDS } from './data/samples';
@@ -73,6 +77,123 @@ export default function App() {
   const [generationError, setGenerationError] = useState<string | null>(null);
   const [isDraggingOver, setIsDraggingOver] = useState<boolean>(false);
   const [shareFeedback, setShareFeedback] = useState<string | null>(null);
+
+  // Voice Input & Vocal Assistant State
+  const [isListening, setIsListening] = useState<boolean>(false);
+  const [isPlayingVoice, setIsPlayingVoice] = useState<boolean>(false);
+  const [voiceGuidanceActive, setVoiceGuidanceActive] = useState<boolean>(true);
+  const [speechSupported, setSpeechSupported] = useState<boolean>(false);
+  const [assistantMessage, setAssistantMessage] = useState<string>('Welcome back. Tell me goals or activate read aloud for updates.');
+
+  useEffect(() => {
+    if ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window) {
+      setSpeechSupported(true);
+    }
+  }, []);
+
+  const speakText = (text: string) => {
+    if (!('speechSynthesis' in window)) return;
+    window.speechSynthesis.cancel();
+    
+    if (!voiceGuidanceActive) return;
+
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.rate = 1.0;
+    utterance.pitch = 1.05;
+    
+    // Attempt standard voices
+    const voices = window.speechSynthesis.getVoices();
+    const candidateVoice = voices.find(v => v.lang.includes('en-US')) || voices[0];
+    if (candidateVoice) {
+      utterance.voice = candidateVoice;
+    }
+
+    utterance.onstart = () => {
+      setIsPlayingVoice(true);
+    };
+    utterance.onend = () => {
+      setIsPlayingVoice(false);
+    };
+    utterance.onerror = () => {
+      setIsPlayingVoice(false);
+    };
+
+    window.speechSynthesis.speak(utterance);
+  };
+
+  const toggleFocusDictation = () => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert("Speech recognition is not supported in this browser. Try Chrome or Safari.");
+      return;
+    }
+
+    if (isListening) {
+      const rec = (window as any).recognitionInstance;
+      if (rec) {
+        rec.stop();
+      }
+      setIsListening(false);
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.lang = 'en-US';
+
+    recognition.onstart = () => {
+      setIsListening(true);
+      speakText("Listening now. Please state your project requirements.");
+    };
+
+    recognition.onresult = (event: any) => {
+      const transcript = event.results[0][0].transcript;
+      setProjectFocus(prev => prev ? prev + ' ' + transcript : transcript);
+      setAssistantMessage(`Voice added: "${transcript}"`);
+      speakText(`Understood. Appended statement.`);
+    };
+
+    recognition.onerror = (event: any) => {
+      console.error(event);
+      setIsListening(false);
+    };
+
+    recognition.onend = () => {
+      setIsListening(false);
+    };
+
+    (window as any).recognitionInstance = recognition;
+    recognition.start();
+  };
+
+  const readBoardWorkflowSummary = () => {
+    const totalSteps = activeBoard.tasks.length;
+    let text = `Showing workspace, ${activeBoard.name}. `;
+    if (activeBoard.description) {
+      text += `The board description states: ${activeBoard.description}. `;
+    }
+    
+    const todoCount = activeBoard.tasks.filter(t => t.status === 'todo').length;
+    const inProgressCount = activeBoard.tasks.filter(t => t.status === 'inprogress').length;
+    const reviewCount = activeBoard.tasks.filter(t => t.status === 'review').length;
+    const doneCount = activeBoard.tasks.filter(t => t.status === 'done').length;
+
+    text += `There are ${totalSteps} visual items currently pinned on your board. `;
+    text += `To Do has ${todoCount} items. In Progress has ${inProgressCount} items. Review has ${reviewCount} items, and Concluded has ${doneCount} items. `;
+
+    if (activeBoard.tasks.length > 0) {
+      const highPriorityTasks = activeBoard.tasks.filter(t => t.priority === 'high');
+      if (highPriorityTasks.length > 0) {
+        text += `High priority updates are: ` + highPriorityTasks.map(t => `${t.title} assigned to ${t.assignee || 'general team'}`).join(', ') + '. ';
+      } else {
+        text += `Active workflow items include: ` + activeBoard.tasks.slice(0, 3).map(t => `${t.title}`).join(', ') + '. ';
+      }
+    }
+    
+    setAssistantMessage(`Playing voice readout of board: ${activeBoard.name}`);
+    speakText(text);
+  };
 
   // Synchronize state changes to localStorage
   useEffect(() => {
@@ -276,6 +397,8 @@ export default function App() {
 
       setBoards(prev => [newBoard, ...prev]);
       setActiveBoardId(newBoardId);
+      setAssistantMessage(`Forged workspace: "${newBoard.name}" with ${processedTasks.length} interactive tasks.`);
+      speakText(`Superb! Gemini vision has successfully finalized the compilation process. Pinned ${processedTasks.length} visual sticky tasks directly onto the board.`);
       
       // Clear file inputs
       setUploadFile(null);
@@ -768,11 +891,102 @@ export default function App() {
 
           <hr className="my-4 border-[#d1cbbd]" />
 
+          {/* COMPANION VOICE CONTROL CARD */}
+          <div className="mb-4 bg-[#fdfcf9] rounded-xl p-4 border border-[#d1cbbd] shadow-sm text-[#2d241e]">
+            <div className="flex items-center justify-between mb-2 pb-1.5 border-b border-[#d1cbbd]">
+              <div className="flex items-center space-x-1.5">
+                <span className="text-sm">🗣️</span>
+                <h3 className="text-xs font-serif font-bold uppercase tracking-wider text-[#2a1d15] m-0">Vocal Companion</h3>
+              </div>
+              <span className={`px-2 py-0.5 rounded-full text-[8px] font-mono font-bold tracking-widest ${
+                isPlayingVoice 
+                  ? 'bg-red-100 text-red-700 border border-red-300 animate-pulse' 
+                  : 'bg-emerald-100 text-emerald-800'
+              }`}>
+                {isPlayingVoice ? 'SPEAKING' : 'AUDIO ACTIVE'}
+              </span>
+            </div>
+
+            {/* Live Message bubble */}
+            <div className="bg-[#2a1d15] text-[#f5e6d3] p-2.5 rounded-lg font-mono text-[9px] leading-relaxed mb-3 border border-[#4d3a2b] shadow-inner relative max-h-24 overflow-y-auto">
+              <div className="absolute top-1.5 right-2 flex space-x-1">
+                {isPlayingVoice && <span className="w-1.5. h-1.5 rounded-full bg-red-500 animate-ping"></span>}
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+              </div>
+              <p className="text-[#e67e22] font-bold uppercase tracking-wider mb-0.5 text-[8px]">Desk Guide Assistant:</p>
+              <p className="italic">"{assistantMessage}"</p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={readBoardWorkflowSummary}
+                className="py-1.5 px-2 bg-[#f5e6d3] hover:bg-[#bca58d]/30 border border-[#d1cbbd] rounded-lg text-[10px] font-mono font-bold text-[#2a1d15] flex items-center justify-center space-x-1 hover:scale-[1.02] active:scale-95 transition-all shadow-xs"
+                title="Convert entire card deck summary to audio reads"
+              >
+                <Volume2 className="h-3.5 w-3.5 text-[#e67e22]" />
+                <span>Read Board</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setVoiceGuidanceActive(!voiceGuidanceActive);
+                  if (voiceGuidanceActive) {
+                    window.speechSynthesis.cancel();
+                    setIsPlayingVoice(false);
+                  }
+                }}
+                className={`py-1.5 px-2 border rounded-lg text-[10px] font-mono font-bold flex items-center justify-center space-x-1 transition-all ${
+                  voiceGuidanceActive 
+                    ? 'bg-emerald-50 border-emerald-300 text-emerald-800' 
+                    : 'bg-stone-100 border-stone-300 text-stone-600'
+                }`}
+                title="Toggles whether assistant speaks out updates dynamically"
+              >
+                {voiceGuidanceActive ? (
+                  <>
+                    <Volume2 className="h-3 w-3 text-emerald-600" />
+                    <span>Mute Off</span>
+                  </>
+                ) : (
+                  <>
+                    <VolumeX className="h-3 w-3 text-stone-500" />
+                    <span>Muted</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+
+          <hr className="my-4 border-[#d1cbbd]" />
+
           {/* Manual Focus Guidance */}
           <div className="mb-4">
             <label className="block text-xs font-serif font-bold text-[#2a1d15] uppercase tracking-wide mb-1 flex items-center justify-between">
-              <span>✍️ Desk Focus Directives</span>
-              <span className="text-[9px] text-[#2a1d15] bg-[#f5e6d3] border border-[#d1cbbd] px-1 rounded">Optional</span>
+              <span className="flex items-center">✍️ Desk Focus Directives</span>
+              <button
+                type="button"
+                onClick={toggleFocusDictation}
+                className={`py-1 px-2.5 rounded-full flex items-center space-x-1 outline-none text-[10px] font-mono font-bold border transition-all ${
+                  isListening 
+                    ? 'bg-red-600 border-red-850 text-white animate-pulse' 
+                    : 'bg-white hover:bg-[#f5e6d3] border-[#d1cbbd] text-[#2a1d15] animate-none'
+                }`}
+                title="Dictate directives using your voice recorder"
+              >
+                {isListening ? (
+                  <>
+                    <Mic className="h-2.5 w-2.5 text-white animate-bounce" />
+                    <span>Recording...</span>
+                  </>
+                ) : (
+                  <>
+                    <Mic className="h-2.5 w-2.5 text-[#e67e22]" />
+                    <span>🎤 Dictate</span>
+                  </>
+                )}
+              </button>
             </label>
             <textarea
               value={projectFocus}
@@ -1019,7 +1233,17 @@ export default function App() {
                                 </span>
                                 
                                 {/* Steering navigation */}
-                                <div className="no-print flex space-x-1.5 opacity-60 hover:opacity-100 transition-opacity">
+                                <div className="no-print flex space-x-1.5 opacity-60 hover:opacity-100 transition-opacity items-center">
+                                  <button
+                                    onClick={() => {
+                                      setAssistantMessage(`Reading: ${task.title}`);
+                                      speakText(`Task Title: ${task.title}. ${task.description ? 'Description: ' + task.description : ''} Assigned to: ${task.assignee || 'the general team'}. Deadline: ${task.deadline}. Priority is ${task.priority}.`);
+                                    }}
+                                    className="p-1 rounded bg-[#2a1d15]/5 hover:bg-[#2a1d15]/10 text-[#2a1d15]"
+                                    title="Speak task details aloud"
+                                  >
+                                    <Volume2 className="h-3.5 w-3.5 text-[#e67e22]" />
+                                  </button>
                                   <button
                                     onClick={() => openEditTaskModal(task)}
                                     className="p-1 rounded bg-stone-950/5 hover:bg-stone-950/10 text-[9px] uppercase font-bold"
